@@ -1,0 +1,761 @@
+openapi: 3.1.0
+
+info:
+  title: UCOM Credit Check API
+  description: |
+    # UCOM Credit Check API
+
+    API REST para la gestión de empresas, cuentas corporativas y verificación
+    de crédito. Permite registrar empresas, asociar cuentas con límites de gasto
+    y descuentos, ejecutar verificaciones de crédito periódicas y consultar
+    el historial de calificaciones.
+
+    ## Flujo de Negocio
+    1. **Registrar empresa** → `POST /companies`
+    2. **Crear cuenta** asociada → `POST /accounts` (límite=$5,000, descuento=5%)
+    3. **Verificar crédito** → `POST /credit-check` (genera calificación 1-10)
+    4. **Consultar historial** → `GET /credit-history/{company_name}`
+
+    ## Tabla de Calificaciones
+    | Calificación | Riesgo | Límite Recomendado | Descuento Recomendado |
+    |-------------|--------|-------------------|----------------------|
+    | 1-4 | Alto | $3,000 | 2% |
+    | 5-7 | Medio | $8,000 | 7% |
+    | 8-10 | Bajo | $15,000 | 12% |
+
+    ## Seguridad
+    Todos los endpoints requieren autenticación mediante **Bearer Token**
+    en el header `Authorization`.
+
+    **Token de prueba:** `ucom-secret-token-2026`
+
+    ## Autor
+    Victor Martinez — UCOM
+  version: "1.0.0"
+  contact:
+    name: Victor Martinez
+  license:
+    name: Uso académico
+
+servers:
+  - url: http://localhost:8000
+    description: Servidor local de desarrollo
+
+# ============================================
+# ESQUEMA DE SEGURIDAD - BEARER TOKEN
+# ============================================
+security:
+  - bearerAuth: []
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        Autenticación mediante Bearer Token.
+
+        Incluye el token en el header `Authorization` con el formato:
+        ```
+        Authorization: Bearer ucom-secret-token-2026
+        ```
+
+        **Token de prueba:** `ucom-secret-token-2026`
+
+  schemas:
+    # ============================================
+    # MODELO: Company (Empresa)
+    # ============================================
+    CompanyCreate:
+      type: object
+      description: |
+        Datos necesarios para registrar una nueva empresa en el sistema.
+        El estado predeterminado es `ACTIVE`.
+      required:
+        - companyName
+        - streetAddress
+        - city
+        - stateProvince
+        - postalCode
+        - country
+        - phone
+        - email
+      properties:
+        companyName:
+          type: string
+          minLength: 2
+          maxLength: 120
+          description: Nombre comercial de la empresa
+          example: "UCOM Technologies"
+        streetAddress:
+          type: string
+          minLength: 3
+          description: Dirección fiscal completa
+          example: "Av. Mariscal López 1234"
+        city:
+          type: string
+          minLength: 2
+          description: Ciudad de ubicación
+          example: "Asunción"
+        stateProvince:
+          type: string
+          minLength: 2
+          description: Estado o provincia
+          example: "Central"
+        postalCode:
+          type: string
+          minLength: 2
+          description: Código postal
+          example: "1209"
+        country:
+          type: string
+          minLength: 2
+          description: País de operación
+          example: "Paraguay"
+        phone:
+          type: string
+          minLength: 6
+          description: Teléfono de contacto principal
+          example: "+59521456123"
+        email:
+          type: string
+          minLength: 5
+          format: email
+          description: Correo electrónico corporativo
+          example: "contacto@ucom.com.py"
+        status:
+          type: string
+          enum: [ACTIVE, INACTIVE]
+          default: ACTIVE
+          description: Estado de la empresa en el sistema
+          example: ACTIVE
+      example:
+        companyName: "UCOM Technologies"
+        streetAddress: "Av. Mariscal López 1234"
+        city: "Asunción"
+        stateProvince: "Central"
+        postalCode: "1209"
+        country: "Paraguay"
+        phone: "+59521456123"
+        email: "contacto@ucom.com.py"
+        status: ACTIVE
+
+    Company:
+      type: object
+      description: |
+        Empresa registrada en el sistema con identificador UUID asignado.
+      allOf:
+        - $ref: '#/components/schemas/CompanyCreate'
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Identificador único generado automáticamente
+          example: "14b758d8-357c-4c8f-a9e2-c6055cc8ab30"
+      example:
+        id: "14b758d8-357c-4c8f-a9e2-c6055cc8ab30"
+        companyName: "UCOM Technologies"
+        streetAddress: "Av. Mariscal López 1234"
+        city: "Asunción"
+        stateProvince: "Central"
+        postalCode: "1209"
+        country: "Paraguay"
+        phone: "+59521456123"
+        email: "contacto@ucom.com.py"
+        status: ACTIVE
+
+    # ============================================
+    # MODELO: Account (Cuenta)
+    # ============================================
+    AccountCreate:
+      type: object
+      description: |
+        Datos para crear una cuenta corporativa vinculada a una empresa.
+
+        ## Valores predeterminados:
+        | Campo | Valor Default |
+        |-------|---------------|
+        | spendingLimit | $5,000 |
+        | discountPercentage | 5% |
+        | status | ACTIVE |
+      required:
+        - companyId
+        - division
+      properties:
+        companyId:
+          type: string
+          format: uuid
+          description: ID de la empresa a la que pertenece la cuenta (Foreign Key)
+          example: "14b758d8-357c-4c8f-a9e2-c6055cc8ab30"
+        division:
+          type: string
+          minLength: 2
+          maxLength: 100
+          description: División o departamento de la empresa
+          example: "Corporate"
+        spendingLimit:
+          type: number
+          format: float
+          minimum: 0
+          default: 5000
+          description: |
+            Límite máximo de gasto permitido.
+            **Valor predeterminado:** $5,000
+          example: 5000
+        discountPercentage:
+          type: number
+          format: float
+          minimum: 0
+          maximum: 100
+          default: 5
+          description: |
+            Porcentaje de descuento aplicable.
+            **Valor predeterminado:** 5%
+          example: 5
+        status:
+          type: string
+          enum: [ACTIVE, INACTIVE, BLOCKED]
+          default: ACTIVE
+          description: Estado de la cuenta
+          example: ACTIVE
+      example:
+        companyId: "14b758d8-357c-4c8f-a9e2-c6055cc8ab30"
+        division: "Corporate"
+        spendingLimit: 5000
+        discountPercentage: 5
+        status: ACTIVE
+
+    Account:
+      type: object
+      description: Cuenta corporativa registrada con ID asignado.
+      allOf:
+        - $ref: '#/components/schemas/AccountCreate'
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Identificador único de la cuenta
+          example: "9c44dbd0-f75b-41ab-85d3-a4a6acd2db19"
+      example:
+        id: "9c44dbd0-f75b-41ab-85d3-a4a6acd2db19"
+        companyId: "14b758d8-357c-4c8f-a9e2-c6055cc8ab30"
+        division: "Corporate"
+        spendingLimit: 5000
+        discountPercentage: 5
+        status: ACTIVE
+
+    # ============================================
+    # MODELO: CreditRequest (Solicitud de Verificación)
+    # ============================================
+    CreditRequest:
+      type: object
+      description: |
+        Payload para solicitar una verificación de crédito.
+        El sistema busca la empresa por nombre y genera una calificación.
+      required:
+        - companyName
+      properties:
+        companyName:
+          type: string
+          minLength: 2
+          maxLength: 120
+          description: Nombre exacto de la empresa a verificar
+          example: "UCOM Technologies"
+      example:
+        companyName: "UCOM Technologies"
+
+    # ============================================
+    # MODELO: CreditResponse (Respuesta de Verificación)
+    # ============================================
+    CreditResponse:
+      type: object
+      description: |
+        Resultado de la verificación de crédito.
+        Incluye la calificación generada y los valores recomendados.
+      required:
+        - companyName
+        - creditScore
+        - recommendedSpendingLimit
+        - recommendedDiscountPercentage
+      properties:
+        companyName:
+          type: string
+          description: Nombre de la empresa verificada
+          example: "UCOM Technologies"
+        creditScore:
+          type: integer
+          minimum: 1
+          maximum: 10
+          description: |
+            Calificación de crédito (escala 1-10).
+
+            | Rango | Interpretación |
+            |-------|----------------|
+            | 1-4 | Riesgo Alto |
+            | 5-7 | Riesgo Medio |
+            | 8-10 | Riesgo Bajo |
+          example: 8
+        recommendedSpendingLimit:
+          type: number
+          format: float
+          minimum: 0
+          description: Límite de gasto recomendado según calificación
+          example: 15000
+        recommendedDiscountPercentage:
+          type: number
+          format: float
+          minimum: 0
+          maximum: 100
+          description: Porcentaje de descuento recomendado
+          example: 12
+      example:
+        companyName: "UCOM Technologies"
+        creditScore: 8
+        recommendedSpendingLimit: 15000
+        recommendedDiscountPercentage: 12
+
+    # ============================================
+    # MODELO: CreditHistory (Historial)
+    # ============================================
+    CreditHistory:
+      type: object
+      description: |
+        Registro de una verificación de crédito ejecutada.
+        Permite auditar las calificaciones asignadas a lo largo del tiempo.
+      required:
+        - id
+        - companyName
+        - requestDate
+        - creditScore
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Identificador único del registro de historial
+          example: "a70d4dc1-a855-44ef-8a41-81c4995a0037"
+        companyName:
+          type: string
+          description: Nombre de la empresa verificada
+          example: "UCOM Technologies"
+        requestDate:
+          type: string
+          format: date-time
+          description: Fecha y hora de la solicitud (zona horaria Paraguay, UTC-3)
+          example: "2026-06-28T14:35:00-03:00"
+        creditScore:
+          type: integer
+          minimum: 1
+          maximum: 10
+          description: Calificación generada en la verificación
+          example: 8
+      example:
+        id: "a70d4dc1-a855-44ef-8a41-81c4995a0037"
+        companyName: "UCOM Technologies"
+        requestDate: "2026-06-28T14:35:00-03:00"
+        creditScore: 8
+
+    # ============================================
+    # MODELO: Error
+    # ============================================
+    Error:
+      type: object
+      description: Estructura estándar de error de la API
+      required:
+        - detail
+      properties:
+        detail:
+          type: string
+          description: Descripción del error ocurrido
+          example: "Token no proporcionado"
+      example:
+        detail: "Token no proporcionado"
+
+  parameters:
+    CompanyIdParam:
+      name: company_id
+      in: path
+      required: true
+      description: Identificador UUID de la empresa
+      schema:
+        type: string
+        format: uuid
+      example: "14b758d8-357c-4c8f-a9e2-c6055cc8ab30"
+
+    CompanyNameParam:
+      name: company_name
+      in: path
+      required: true
+      description: Nombre de la empresa para buscar historial (no distingue mayúsculas/minúsculas)
+      schema:
+        type: string
+      example: "UCOM Technologies"
+
+  responses:
+    UnauthorizedError:
+      description: No autorizado — Token ausente o inválido
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            detail: "Token no proporcionado"
+
+    NotFoundError:
+      description: Recurso no encontrado
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            detail: "Empresa no encontrada"
+
+    ConflictError:
+      description: Conflicto — Recurso duplicado
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            detail: "Ya existe una empresa con ese nombre"
+
+    ValidationError:
+      description: Error de validación en los datos de entrada
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            detail: "Datos de entrada inválidos"
+
+# ============================================
+# TAGS
+# ============================================
+tags:
+  - name: General
+    description: Información general y especificación OpenAPI
+  - name: Companies
+    description: Gestión de empresas clientes
+  - name: Accounts
+    description: Gestión de cuentas corporativas
+  - name: Credit Check
+    description: Verificación de crédito y calificaciones
+  - name: Credit History
+    description: Consulta de historial de verificaciones
+
+# ============================================
+# PATHS / ENDPOINTS
+# ============================================
+paths:
+  /:
+    get:
+      tags:
+        - General
+      summary: Información general de la API
+      description: Devuelve información básica sobre la API y enlaces a la documentación.
+      operationId: home
+      security: []  # Endpoint público
+      responses:
+        '200':
+          description: Información general
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "UCOM Credit Check API"
+                  docs:
+                    type: string
+                    example: "/docs"
+                  redoc:
+                    type: string
+                    example: "/redoc"
+                  openapiYaml:
+                    type: string
+                    example: "/openapi.yaml"
+
+  /openapi.yaml:
+    get:
+      tags:
+        - General
+      summary: Descargar especificación OpenAPI YAML
+      description: Devuelve el archivo de especificación OpenAPI en formato YAML.
+      operationId: getOpenapiYaml
+      security: []  # Endpoint público
+      responses:
+        '200':
+          description: Archivo YAML descargado
+          content:
+            application/yaml:
+              schema:
+                type: string
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+  # ============================================
+  # COMPANIES
+  # ============================================
+  /companies:
+    post:
+      tags:
+        - Companies
+      summary: Registrar una empresa
+      description: |
+        Registra una nueva empresa en el sistema.
+
+        ## Reglas de negocio:
+        - El nombre de empresa debe ser único
+        - El correo electrónico debe ser único
+        - Se genera automáticamente un UUID como identificador
+        - El estado predeterminado es `ACTIVE`
+      operationId: createCompany
+      requestBody:
+        required: true
+        description: Datos de la empresa a registrar
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CompanyCreate'
+      responses:
+        '200':
+          description: Empresa registrada exitosamente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Company'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '409':
+          $ref: '#/components/responses/ConflictError'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+    get:
+      tags:
+        - Companies
+      summary: Listar todas las empresas
+      description: Devuelve el listado completo de empresas registradas en el sistema.
+      operationId: listCompanies
+      responses:
+        '200':
+          description: Lista de empresas obtenida exitosamente
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Company'
+              example:
+                - id: "14b758d8-357c-4c8f-a9e2-c6055cc8ab30"
+                  companyName: "UCOM Technologies"
+                  streetAddress: "Av. Mariscal López 1234"
+                  city: "Asunción"
+                  stateProvince: "Central"
+                  postalCode: "1209"
+                  country: "Paraguay"
+                  phone: "+59521456123"
+                  email: "contacto@ucom.com.py"
+                  status: ACTIVE
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  /companies/{company_id}:
+    get:
+      tags:
+        - Companies
+      summary: Buscar empresa por ID
+      description: Recupera los detalles de una empresa específica mediante su UUID.
+      operationId: getCompany
+      parameters:
+        - $ref: '#/components/parameters/CompanyIdParam'
+      responses:
+        '200':
+          description: Empresa encontrada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Company'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+
+  # ============================================
+  # ACCOUNTS
+  # ============================================
+  /accounts:
+    post:
+      tags:
+        - Accounts
+      summary: Registrar una cuenta
+      description: |
+        Crea una nueva cuenta corporativa vinculada a una empresa existente.
+
+        ## Valores predeterminados:
+        | Campo | Valor Default |
+        |-------|---------------|
+        | spendingLimit | $5,000 |
+        | discountPercentage | 5% |
+        | status | ACTIVE |
+
+        ## Reglas:
+        - La empresa referenciada por `companyId` debe existir
+        - Se genera automáticamente un UUID como identificador
+      operationId: createAccount
+      requestBody:
+        required: true
+        description: Datos de la cuenta a crear
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AccountCreate'
+      responses:
+        '200':
+          description: Cuenta registrada exitosamente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Account'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+    get:
+      tags:
+        - Accounts
+      summary: Listar todas las cuentas
+      description: Devuelve el listado completo de cuentas registradas.
+      operationId: listAccounts
+      responses:
+        '200':
+          description: Lista de cuentas obtenida exitosamente
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Account'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+
+  # ============================================
+  # CREDIT CHECK
+  # ============================================
+  /credit-check:
+    post:
+      tags:
+        - Credit Check
+      summary: Ejecutar verificación de crédito
+      description: |
+        # 🔍 Verificación de Crédito
+
+        Calcula una calificación de crédito entre 1 y 10 para una empresa registrada.
+
+        ## Proceso:
+        1. Se busca la empresa por `companyName`
+        2. Se genera una **calificación** usando un algoritmo académico simplificado
+        3. Se determinan los valores recomendados según la calificación
+        4. Se registra automáticamente en el **historial**
+
+        ## Tabla de ajustes:
+        | Calificación | Límite | Descuento |
+        |-------------|--------|-----------|
+        | 1-4 | $3,000 | 2% |
+        | 5-7 | $8,000 | 7% |
+        | 8-10 | $15,000 | 12% |
+
+        ## Nota:
+        La empresa debe estar previamente registrada mediante `POST /companies`.
+      operationId: verifyCredit
+      requestBody:
+        required: true
+        description: Nombre de la empresa a verificar
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreditRequest'
+            examples:
+              verificacionExitosa:
+                summary: Verificación de empresa existente
+                value:
+                  companyName: "UCOM Technologies"
+      responses:
+        '200':
+          description: Verificación ejecutada exitosamente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreditResponse'
+              examples:
+                calificacionAlta:
+                  summary: Calificación alta (8/10)
+                  value:
+                    companyName: "UCOM Technologies"
+                    creditScore: 8
+                    recommendedSpendingLimit: 15000
+                    recommendedDiscountPercentage: 12
+                calificacionBaja:
+                  summary: Calificación baja (3/10)
+                  value:
+                    companyName: "EmpresaRiesgosa"
+                    creditScore: 3
+                    recommendedSpendingLimit: 3000
+                    recommendedDiscountPercentage: 2
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+
+  # ============================================
+  # CREDIT HISTORY
+  # ============================================
+  /credit-history/{company_name}:
+    get:
+      tags:
+        - Credit History
+      summary: Consultar historial de crédito
+      description: |
+        Recupera el historial de verificaciones de crédito para una empresa.
+
+        ## Características:
+        - Búsqueda **no distingue mayúsculas/minúsculas**
+        - Resultados ordenados por fecha descendente
+        - Incluye calificación y fecha de cada verificación
+      operationId: getCreditHistory
+      parameters:
+        - $ref: '#/components/parameters/CompanyNameParam'
+      responses:
+        '200':
+          description: Historial de verificaciones obtenido
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/CreditHistory'
+              example:
+                - id: "a70d4dc1-a855-44ef-8a41-81c4995a0037"
+                  companyName: "UCOM Technologies"
+                  requestDate: "2026-06-28T14:35:00-03:00"
+                  creditScore: 8
+                - id: "b81e5ed2-b966-55fg-9b52-92d6aad4b1148"
+                  companyName: "UCOM Technologies"
+                  requestDate: "2026-05-15T10:20:00-03:00"
+                  creditScore: 6
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          description: No se encontró historial para la empresa
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                detail: "No existe historial para esta empresa"
