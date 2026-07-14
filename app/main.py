@@ -49,7 +49,7 @@ app = FastAPI(
     version="1.0.0",
     contact={
         "name": "Victor Martinez",
-        "url": "https://github.com/hernansilgueira-ccp/ucom-credit-check-api"
+        "url": "https://github.com/ziroch/ucom-credit-check-api"
     },
     license_info={
         "name": "Uso académico",
